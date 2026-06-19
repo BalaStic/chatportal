@@ -1,295 +1,293 @@
 <!DOCTYPE html>
-<html lang="hu">
+<html class="light" lang="hu">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ChatPortal</title>
-    <!-- Marked.js betöltése a Markdown formázáshoz (félkövér, listák, stb.) -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 20px auto; padding: 10px; background-color: #f5f7fb; }
-        #config, #chat-box { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 20px; }
-        .input-group { margin-bottom: 15px; }
-        label { display: block; font-weight: bold; margin-bottom: 5px; color: #333; }
-        input[type="text"], input[type="password"], textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-        textarea { height: 100px; resize: vertical; font-family: Arial, sans-serif; }
-        button { background-color: #1a73e8; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold; }
-        button:hover { background-color: #1557b0; }
-        button:disabled { background-color: #aaa; cursor: not-allowed; }
-        #history { height: 450px; overflow-y: auto; border: 1px solid #ddd; padding: 15px; margin-bottom: 15px; background: #fff; border-radius: 4px; }
-        .message { margin-bottom: 20px; padding: 12px 15px; border-radius: 6px; line-height: 1.5; }
-        .user { background-color: #e8f0fe; border-left: 5px solid #1a73e8; }
-        .assistant { background-color: #f8f9fa; border-left: 5px solid #34a853; }
-        .msg-header { font-weight: bold; margin-bottom: 8px; color: #555; font-size: 0.9em; }
-        .assistant ul, .assistant ol { padding-left: 20px; margin: 5px 0; }
-        .assistant p { margin: 5px 0 10px 0; }
-        .copy-btn { background: transparent; color: #555; padding: 6px; border: none; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s; }
-        .copy-btn:hover { background-color: #e0e0e0; color: #000; }
-        .provider-select { display: flex; gap: 20px; align-items: center; margin-bottom: 20px; padding: 10px 14px; background: #f5f7fb; border-radius: 6px; border: 1px solid #e0e4ed; }
-        .provider-select > span { font-weight: bold; color: #333; margin-right: 4px; }
-        .provider-select label { font-weight: normal; color: #333; margin-bottom: 0; display: flex; align-items: center; gap: 6px; cursor: pointer; }
-        .provider-select input[type="radio"] { width: auto; margin: 0; cursor: pointer; accent-color: #1a73e8; }
-    </style>
-</head>
-<body>
-
-    <h2>ChatPortal</h2>
-
-    <!-- Beállítások panel -->
-    <div id="config">
-
-        <!-- Szolgáltató választó -->
-        <div class="provider-select">
-            <span>Szolgáltató:</span>
-            <label>
-                <input type="radio" name="provider" value="gemini" checked onchange="onProviderChange()">
-                🔵 Google Gemini
-            </label>
-            <label>
-                <input type="radio" name="provider" value="deepseek" onchange="onProviderChange()">
-                🐋 DeepSeek
-            </label>
-        </div>
-
-        <div class="input-group">
-            <label for="geminiApiKey">Google Gemini API Kulcs:</label>
-            <input type="password" id="geminiApiKey" placeholder="AIzaSy..." autocomplete="off">
-        </div>
-        <div class="input-group">
-            <label for="deepseekApiKey">DeepSeek API Kulcs:</label>
-            <input type="password" id="deepseekApiKey" placeholder="sk-..." autocomplete="off">
-        </div>
-        <div class="input-group">
-            <label for="model">Modell kódja:</label>
-            <input type="text" id="model" value="gemini-3.1-pro-preview">
-        </div>
-    </div>
-
-    <!-- Chat ablak -->
-    <div id="chat-box">
-        <div id="history"></div>
-        <div class="input-group">
-            <textarea id="userInput" placeholder="Írd ide az üzenetet... (Küldés: Ctrl+Enter vagy gomb)"></textarea>
-        </div>
-        <button onclick="sendMessage()">Üzenet küldése</button>
-    </div>
-
-    <script>
-        // Normalizált előzmények: [{ role: 'user'|'assistant', content: string }]
-        // Ez az OpenAI / DeepSeek formátum; Gemini-hez konvertálva lesz küldés előtt.
-        let conversationHistory = [];
-        let msgCounter = 0;
-
-        const MODELS = {
-            gemini: 'gemini-3.1-pro-preview',
-            deepseek: 'deepseek-v4-pro'
-        };
-
-        function getProvider() {
-            return document.querySelector('input[name="provider"]:checked').value;
-        }
-
-        function onProviderChange() {
-            document.getElementById('model').value = MODELS[getProvider()];
-            // Előzmények törlése provider-váltáskor (a kontextus nem hordozható)
-            conversationHistory = [];
-            document.getElementById('history').innerHTML = '';
-        }
-
-        // Ctrl+Enter gyorsbillentyű kezelése
-        document.getElementById('userInput').addEventListener('keydown', function(e) {
-            if (e.ctrlKey && e.key === 'Enter') {
-                sendMessage();
-            }
-        });
-
-        async function sendMessage() {
-            const model = document.getElementById('model').value.trim();
-            const userInputField = document.getElementById('userInput');
-            const userText = userInputField.value.trim();
-            const sendBtn = document.querySelector('button[onclick="sendMessage()"]');
-            const provider = getProvider();
-
-            if (!model) { alert('Hiba: A modell neve nem lehet üres!'); return; }
-            if (!userText) return;
-
-            appendMessage('Te', userText, 'user', false);
-            conversationHistory.push({ role: 'user', content: userText });
-            userInputField.value = '';
-
-            const aiName = provider === 'gemini' ? 'Gemini AI' : 'DeepSeek AI';
-            const botMessageId = appendMessage(aiName, 'Gondolkodik...', 'assistant', false);
-            sendBtn.disabled = true;
-
-            try {
-                if (provider === 'gemini') {
-                    await sendGemini(botMessageId, model);
-                } else {
-                    await sendDeepSeek(botMessageId, model);
-                }
-            } finally {
-                sendBtn.disabled = false;
-            }
-        }
-
-        async function sendGemini(botMessageId, model) {
-            const apiKey = document.getElementById('geminiApiKey').value.trim();
-            if (!apiKey) {
-                updateMessage(botMessageId, 'Hiba: Kérlek, add meg a Google Gemini API kulcsot!');
-                return;
-            }
-
-            // Normalizált előzmények konvertálása Gemini formátumra
-            const geminiContents = conversationHistory.map(msg => ({
-                role: msg.role === 'assistant' ? 'model' : 'user',
-                parts: [{ text: msg.content }]
-            }));
-
-            try {
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ contents: geminiContents })
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
-                        const aiText = data.candidates[0].content.parts[0].text;
-                        conversationHistory.push({ role: 'assistant', content: aiText });
-                        updateMessage(botMessageId, aiText);
-                    } else {
-                        updateMessage(botMessageId, 'Hiba: Az API válaszolt, de nem küldött vissza szöveget. Ellenőrizd a fiókod korlátozásait.');
-                    }
-                } else {
-                    const errorMsg = data.error?.message || 'Ismeretlen hiba történt a Google szerverén.';
-                    updateMessage(botMessageId, `Google API Hiba: ${errorMsg}`);
-                }
-            } catch (error) {
-                updateMessage(botMessageId, `Hálózati hiba lépett fel: ${error.message}`);
-            }
-        }
-
-        async function sendDeepSeek(botMessageId, model) {
-            const apiKey = document.getElementById('deepseekApiKey').value.trim();
-            if (!apiKey) {
-                updateMessage(botMessageId, 'Hiba: Kérlek, add meg a DeepSeek API kulcsot!');
-                return;
-            }
-
-            try {
-                const response = await fetch('https://api.deepseek.com/chat/completions', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${apiKey}`
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ChatPortal — Steel Protocol Terminal</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+<script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        /* Steel Protocol — Light Mode */
+                        surface: '#f8f9fa',
+                        'surface-dim': '#d9dadb',
+                        'surface-bright': '#f8f9fa',
+                        'surface-container-lowest': '#ffffff',
+                        'surface-container-low': '#f3f4f5',
+                        'surface-container': '#edeeef',
+                        'surface-container-high': '#e7e8e9',
+                        'surface-container-highest': '#e1e3e4',
+                        'on-surface': '#191c1d',
+                        'on-surface-variant': '#43474a',
+                        'inverse-surface': '#2e3132',
+                        'inverse-on-surface': '#f0f1f2',
+                        outline: '#74777a',
+                        'outline-variant': '#c4c7ca',
+                        'surface-tint': '#585f64',
+                        primary: '#555d62',
+                        'on-primary': '#ffffff',
+                        'primary-container': '#6e767b',
+                        'on-primary-container': '#fbfdff',
+                        'inverse-primary': '#c0c8cd',
+                        secondary: '#5e5e5f',
+                        'on-secondary': '#ffffff',
+                        'secondary-container': '#e0dfdf',
+                        'on-secondary-container': '#626363',
+                        tertiary: '#5c5c5d',
+                        'on-tertiary': '#ffffff',
+                        'tertiary-container': '#757475',
+                        'on-tertiary-container': '#fffcfd',
+                        error: '#ba1a1a',
+                        'on-error': '#ffffff',
+                        'error-container': '#ffdad6',
+                        'on-error-container': '#93000a',
+                        'primary-fixed': '#dce4e9',
+                        'primary-fixed-dim': '#c0c8cd',
+                        'on-primary-fixed': '#151d21',
+                        'on-primary-fixed-variant': '#40484c',
+                        'secondary-fixed': '#e3e2e2',
+                        'secondary-fixed-dim': '#c7c6c6',
+                        'on-secondary-fixed': '#1a1c1c',
+                        'on-secondary-fixed-variant': '#464747',
+                        'tertiary-fixed': '#e5e2e3',
+                        'tertiary-fixed-dim': '#c8c6c7',
+                        'on-tertiary-fixed': '#1b1b1c',
+                        'on-tertiary-fixed-variant': '#474647',
+                        background: '#f8f9fa',
+                        'on-background': '#191c1d',
+                        'surface-variant': '#e1e3e4',
                     },
-                    body: JSON.stringify({
-                        model: model,
-                        messages: conversationHistory  // már OpenAI/DeepSeek formátumban van
-                    })
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    if (data.choices?.[0]?.message?.content) {
-                        const aiText = data.choices[0].message.content;
-                        conversationHistory.push({ role: 'assistant', content: aiText });
-                        updateMessage(botMessageId, aiText);
-                    } else {
-                        updateMessage(botMessageId, 'Hiba: Az API válaszolt, de nem küldött vissza szöveget.');
-                    }
-                } else {
-                    const errorMsg = data.error?.message || 'Ismeretlen hiba történt a DeepSeek szerverén.';
-                    updateMessage(botMessageId, `DeepSeek API Hiba: ${errorMsg}`);
+                    fontFamily: {
+                        sans: ['Geist', 'system-ui', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                        'code-label': ['JetBrains Mono', 'monospace'],
+                    },
+                    fontSize: {
+                        'headline-xl': ['48px', { lineHeight: '56px', fontWeight: '700', letterSpacing: '-0.02em' }],
+                        'headline-lg': ['32px', { lineHeight: '40px', fontWeight: '600', letterSpacing: '-0.01em' }],
+                        'headline-lg-mobile': ['24px', { lineHeight: '32px', fontWeight: '600', letterSpacing: '-0.01em' }],
+                        'body-md': ['16px', { lineHeight: '24px', fontWeight: '400' }],
+                        'body-sm': ['14px', { lineHeight: '20px', fontWeight: '400' }],
+                        'label-md': ['12px', { lineHeight: '16px', fontWeight: '500', letterSpacing: '0.05em' }],
+                        'label-xs': ['10px', { lineHeight: '12px', fontWeight: '500', letterSpacing: '0.08em' }],
+                    },
+                    spacing: {
+                        'unit': '4px',
+                        'gutter': '24px',
+                        'margin-desktop': '64px',
+                        'margin-mobile': '16px',
+                        'container-max': '1440px',
+                    },
+                    borderRadius: {
+                        DEFAULT: '0',
+                        'sm': '0',
+                        'md': '0',
+                        'lg': '0',
+                        'xl': '0',
+                        '2xl': '0',
+                        '3xl': '0',
+                        'full': '9999px',
+                    },
                 }
-            } catch (error) {
-                updateMessage(botMessageId, `Hálózati hiba lépett fel: ${error.message}`);
             }
-        }
-
-        function appendMessage(sender, text, className, isMarkdown) {
-            const historyDiv = document.getElementById('history');
-            const msgDiv = document.createElement('div');
-            const id = 'msg-' + (++msgCounter);
-            msgDiv.id = id;
-            msgDiv.className = `message ${className}`;
-            msgDiv.dataset.rawText = text;
-            
-            const header = document.createElement('div');
-            header.className = 'msg-header';
-            header.style.display = 'flex';
-            header.style.justifyContent = 'space-between';
-            header.style.alignItems = 'center';
-            
-            const senderSpan = document.createElement('span');
-            senderSpan.innerText = sender + ':';
-            header.appendChild(senderSpan);
-            
-            if (className === 'assistant') {
-                const copyBtn = document.createElement('button');
-                const copyIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
-                const checkIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34a853" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-                
-                copyBtn.innerHTML = copyIcon;
-                copyBtn.className = 'copy-btn';
-                copyBtn.title = 'Válasz másolása';
-                copyBtn.onclick = async function() {
-                    const contentDiv = msgDiv.querySelector('.msg-content');
-                    const htmlContent = contentDiv ? contentDiv.innerHTML : '';
-                    const plainText = msgDiv.dataset.rawText || '';
-
-                    try {
-                        const htmlBlob = new Blob([htmlContent], { type: 'text/html' });
-                        const textBlob = new Blob([plainText], { type: 'text/plain' });
-                        const clipData = [new ClipboardItem({
-                            'text/html': htmlBlob,
-                            'text/plain': textBlob
-                        })];
-                        await navigator.clipboard.write(clipData);
-                        copyBtn.innerHTML = checkIcon;
-                        setTimeout(() => copyBtn.innerHTML = copyIcon, 2000);
-                    } catch (err) {
-                        console.error('Hiba a formázott másolásnál:', err);
-                        navigator.clipboard.writeText(plainText).then(() => {
-                            copyBtn.innerHTML = checkIcon;
-                            setTimeout(() => copyBtn.innerHTML = copyIcon, 2000);
-                        });
-                    }
-                };
-                header.appendChild(copyBtn);
-            }
-            
-            msgDiv.appendChild(header);
-
-            const content = document.createElement('div');
-            content.className = 'msg-content';
-            content.innerHTML = isMarkdown ? marked.parse(text) : escapeHtml(text);
-            msgDiv.appendChild(content);
-
-            historyDiv.appendChild(msgDiv);
-            historyDiv.scrollTop = historyDiv.scrollHeight;
-            return id;
-        }
-
-        function updateMessage(id, text) {
-            const msgDiv = document.getElementById(id);
-            if (msgDiv) {
-                msgDiv.dataset.rawText = text;
-                const contentDiv = msgDiv.querySelector('.msg-content');
-                if (contentDiv) {
-                    contentDiv.innerHTML = marked.parse(text);
-                }
-                document.getElementById('history').scrollTop = document.getElementById('history').scrollHeight;
-            }
-        }
-
-        function escapeHtml(text) {
-            return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
         }
     </script>
+</head>
+<body class="bg-background text-on-surface font-sans overflow-hidden selection:bg-primary selection:text-on-primary">
+<!-- CRT Scanline Effect -->
+<div class="scanline fixed inset-0 z-50 pointer-events-none opacity-40"></div>
+
+<!-- Scrolling Grid Background -->
+<div class="fixed inset-0 z-0 opacity-5 pointer-events-none matrix-bg" style="background-image: linear-gradient(rgba(85, 93, 98, 0.2) 1px, transparent 1px), linear-gradient(90deg, rgba(85, 93, 98, 0.2) 1px, transparent 1px); background-size: 50px 50px;"></div>
+
+<!-- HUD Decorations -->
+<div class="hud-corner top-[10px] left-[10px] border-t-2 border-l-2"></div>
+<div class="hud-corner top-[10px] right-[10px] border-t-2 border-r-2"></div>
+<div class="hud-corner bottom-[10px] left-[10px] border-b-2 border-l-2"></div>
+<div class="hud-corner bottom-[10px] right-[10px] border-b-2 border-r-2"></div>
+
+<div class="relative flex h-screen w-full overflow-hidden transition-all duration-300" id="main-container">
+
+    <!-- ===== SIDEBAR ===== -->
+    <aside class="hidden md:flex flex-col h-full fixed left-0 top-0 pt-16 z-40 h-screen w-64 border-r border-outline/20 bg-surface-container-low">
+        <!-- Sidebar background image (T-1000) -->
+        <div class="absolute inset-0 z-0 pointer-events-none opacity-20 overflow-hidden">
+            <img alt="" class="absolute bottom-0 w-full h-auto object-cover filter grayscale blur-[2px]" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBzRMnGrEOvOnHqb7xTvcZVVYWQwrJ31C0HtEU5N-I1fkzqtJy8K1CFcv8X37RWnHbQUhgTW7_25lS_IIQardkDN9Qciafu6cignjAVUgxLjLXrcDQT_GAit1WQlS0WTPw6C-ZQgqxfHXwAStwV7jipcfi0_BeMvrMtyR7Q-NGkpkSRDkHJme46Yt2B1Mw8qoF6Bjc_GL793XEHssCPFzANBxmU_OZxTcaRPL8YRdVwIhT2ykyDry0W_kinNuMFLROd0z5GELtT73c" style="mix-blend-mode: multiply;"/>
+        </div>
+        <div class="p-6 flex flex-col h-full relative z-10">
+            <!-- Branding -->
+            <div class="flex items-center space-x-3 mb-8">
+                <div class="w-10 h-10 border-2 border-primary flex items-center justify-center bg-white">
+                    <span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">memory</span>
+                </div>
+                <div>
+                    <h3 class="font-mono text-label-md text-on-surface uppercase tracking-wider">ChatPortal</h3>
+                    <p class="text-[10px] text-on-surface-variant font-mono">Steel Protocol v1.0</p>
+                </div>
+            </div>
+
+            <!-- Navigation -->
+            <nav class="flex-grow flex flex-col space-y-1">
+                <a class="bg-primary text-on-primary border-l-4 border-on-primary-fixed font-bold px-4 py-3 flex items-center gap-3 transition-all" href="#" onclick="document.getElementById('chat-feed').scrollIntoView({behavior:'smooth'}); return false;">
+                    <span class="material-symbols-outlined">chat</span>
+                    <span class="font-mono text-label-md uppercase">Terminal</span>
+                </a>
+                <a class="text-on-surface-variant px-4 py-3 hover:bg-surface-variant/50 hover:text-primary transition-colors duration-150 flex items-center gap-3" href="#" onclick="toggleSettings(); return false;">
+                    <span class="material-symbols-outlined">tune</span>
+                    <span class="font-mono text-label-md uppercase">Configuration</span>
+                </a>
+                <a class="text-on-surface-variant px-4 py-3 hover:bg-surface-variant/50 hover:text-primary transition-colors duration-150 flex items-center gap-3" href="#" onclick="document.getElementById('chat-feed').scrollTop = 0; return false;">
+                    <span class="material-symbols-outlined">history</span>
+                    <span class="font-mono text-label-md uppercase">Session Log</span>
+                </a>
+            </nav>
+
+            <!-- Status indicator -->
+            <div class="mt-auto border-t border-outline-variant pt-4">
+                <div class="flex items-center gap-2 px-4 py-2">
+                    <div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
+                    <span class="font-mono text-label-xs text-on-surface-variant uppercase tracking-widest">System Online</span>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ===== MAIN CONTENT ===== -->
+    <main class="relative flex-grow flex flex-col h-full ml-0 md:ml-64 pt-16">
+
+        <!-- ===== TOP APP BAR ===== -->
+        <header class="fixed top-0 left-0 right-0 w-full z-50 flex items-center justify-between px-margin-mobile md:px-margin-desktop h-16 bg-surface/95 backdrop-blur-md border-b border-primary/30">
+            <div class="flex items-center gap-4">
+                <div class="h-10 w-10 flex items-center justify-center">
+                    <span class="material-symbols-outlined text-primary text-3xl flicker-silver" style="font-variation-settings: 'FILL' 1;">terminal</span>
+                </div>
+                <h1 class="font-sans text-headline-lg-mobile md:text-headline-lg text-primary tracking-tighter uppercase italic">ChatPortal Terminal</h1>
+            </div>
+            <div class="hidden md:flex items-center gap-6">
+                <div class="flex items-center gap-2 px-3 py-1 border border-primary/20 bg-surface-container-low">
+                    <div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
+                    <span class="font-mono text-label-xs text-primary uppercase tracking-wider" id="status-indicator">Ready</span>
+                </div>
+                <div class="flex gap-4">
+                    <span class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors cursor-pointer" onclick="toggleSettings()">tune</span>
+                    <span class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors cursor-pointer" onclick="clearChat()">delete_sweep</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- ===== SETTINGS PANEL (collapsible) ===== -->
+        <div id="settings-panel" class="settings-panel bg-surface-container-low border-b border-outline/20 px-margin-mobile md:px-margin-desktop">
+            <div class="max-w-container-max mx-auto">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <!-- Provider Selection -->
+                    <div>
+                        <label class="font-mono text-label-xs text-on-surface-variant uppercase tracking-widest block mb-2">Provider</label>
+                        <div class="flex gap-2">
+                            <input type="radio" name="provider" id="prov-gemini" value="gemini" checked class="hidden provider-radio" onchange="onProviderChange()">
+                            <label for="prov-gemini" class="provider-label flex-1 text-center px-3 py-2 border border-outline-variant font-mono text-label-xs uppercase tracking-wider bg-white">Gemini</label>
+                            <input type="radio" name="provider" id="prov-deepseek" value="deepseek" class="hidden provider-radio" onchange="onProviderChange()">
+                            <label for="prov-deepseek" class="provider-label flex-1 text-center px-3 py-2 border border-outline-variant font-mono text-label-xs uppercase tracking-wider bg-white">DeepSeek</label>
+                        </div>
+                    </div>
+
+                    <!-- API Key -->
+                    <div>
+                        <label class="font-mono text-label-xs text-on-surface-variant uppercase tracking-widest block mb-2" id="api-key-label">Gemini API Key</label>
+                        <input type="password" id="apiKey" placeholder="AIzaSy..." class="w-full bg-surface-container-lowest border border-outline/30 text-on-surface font-mono text-body-sm px-3 py-2">
+                    </div>
+
+                    <!-- Model -->
+                    <div>
+                        <label class="font-mono text-label-xs text-on-surface-variant uppercase tracking-widest block mb-2">Model</label>
+                        <input type="text" id="model" value="gemini-3.1-pro-preview" class="w-full bg-surface-container-lowest border border-outline/30 text-on-surface font-mono text-body-sm px-3 py-2">
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="flex items-end gap-2">
+                        <button onclick="clearChat()" class="flex-1 px-3 py-2 border border-outline/30 text-on-surface-variant font-mono text-label-xs uppercase tracking-wider hover:bg-surface-variant/50 transition-colors">
+                            Clear Log
+                        </button>
+                        <button onclick="toggleSettings()" class="flex-1 px-3 py-2 bg-primary text-on-primary font-mono text-label-xs uppercase tracking-wider hover:bg-primary-container transition-colors">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== CHAT FEED ===== -->
+        <section class="flex-grow overflow-y-auto px-gutter relative space-y-6 pb-40" id="chat-feed">
+            <!-- Faint background image (Arnie on motorcycle) -->
+            <div class="absolute inset-0 z-0 pointer-events-none opacity-[0.08] overflow-hidden">
+                <img alt="" class="w-full h-full object-cover filter grayscale contrast-125" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDywFxif4-GgfKK35iCCp900VusB0fV0SpmYakIP_llSkCma3Agnk5aBwkIZmOdOJNZtgCKoBHFV0JsJ1s1d13EjkQnirN1HLBsSLgLnkNz_oLaQl5GZu9glbiHY8sLoWgiSkvZqqB9O3dg5mnFNyb9lWpTagx0JLAdtoCMy19iDKwAHAIWS6tVb8PnTT_Ubgrak9qfRPX5AeN7b4ajxLZlIBuyTkJPo_nUF3c8bRL2JGJPbNjDYoo8HRXqYAX-lq9_w0WrZiF-rI8"/>
+            </div>
+
+            <!-- System Banner -->
+            <div class="flex justify-center my-8 relative z-10">
+                <div class="px-6 py-2 border border-primary/20 bg-surface/90 backdrop-blur flex items-center gap-4">
+                    <span class="material-symbols-outlined text-primary">terminal</span>
+                    <span class="font-mono text-label-xs text-on-surface uppercase tracking-[0.2em]">Steel Protocol Active — Terminal Ready</span>
+                </div>
+            </div>
+
+            <!-- Messages will be injected here -->
+            <div id="history" class="relative z-10 space-y-6"></div>
+
+            <!-- Scroll anchor -->
+            <div id="anchor"></div>
+        </section>
+
+        <!-- ===== INPUT PANEL ===== -->
+        <footer class="fixed bottom-0 left-0 md:left-64 right-0 bg-surface/95 backdrop-blur-xl border-t border-outline/20 p-4 z-40">
+            <div class="max-w-container-max mx-auto flex flex-col gap-3">
+                <!-- Quick Canned Commands -->
+                <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                    <button class="px-3 py-1 border border-primary/20 bg-surface-container-low font-mono text-label-xs text-primary hover:bg-primary hover:text-on-primary transition-all whitespace-nowrap uppercase" onclick="sendQuickMessage('AFFIRMATIVE')">Affirmative</button>
+                    <button class="px-3 py-1 border border-primary/20 bg-surface-container-low font-mono text-label-xs text-primary hover:bg-primary hover:text-on-primary transition-all whitespace-nowrap uppercase" onclick="sendQuickMessage('NEGATIVE')">Negative</button>
+                    <button class="px-3 py-1 border border-primary/20 bg-surface-container-low font-mono text-label-xs text-primary hover:bg-primary hover:text-on-primary transition-all whitespace-nowrap uppercase" onclick="sendQuickMessage('PROCESSING')">Processing</button>
+                    <button class="px-3 py-1 border border-primary/20 bg-surface-container-low font-mono text-label-xs text-primary hover:bg-primary hover:text-on-primary transition-all whitespace-nowrap uppercase" onclick="sendQuickMessage('ACKNOWLEDGED')">Acknowledged</button>
+                    <button class="px-3 py-1 border border-primary/20 bg-surface-container-low font-mono text-label-xs text-primary hover:bg-primary hover:text-on-primary transition-all whitespace-nowrap uppercase" onclick="sendQuickMessage('STANDBY')">Standby</button>
+                </div>
+
+                <div class="flex items-center gap-4">
+                    <div class="relative flex-grow">
+                        <div class="absolute left-0 top-0 bottom-0 w-[2px] bg-primary"></div>
+                        <div class="absolute right-0 top-0 bottom-0 w-[2px] bg-primary"></div>
+                        <textarea class="w-full bg-surface-container-lowest border border-outline/20 text-on-surface font-mono text-body-sm px-6 py-4 resize-none" id="userInput" placeholder="ENTER COMMAND..." rows="2" style="scrollbar-width: none;"></textarea>
+                    </div>
+                    <button class="send-btn relative flex items-center justify-center px-8 bg-primary text-on-primary font-mono text-label-md uppercase overflow-hidden group" id="send-btn" style="height: 80px; min-width: 100px;">
+                        <div class="targeting-reticle"></div>
+                        <span class="relative z-10 tracking-widest">Send</span>
+                    </button>
+                </div>
+            </div>
+        </footer>
+    </main>
+
+    <!-- ===== MOBILE NAVBAR ===== -->
+    <nav class="md:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center h-16 pb-safe bg-surface border-t border-outline/20">
+        <button class="flex flex-col items-center justify-center text-primary" onclick="document.getElementById('chat-feed').scrollIntoView({behavior:'smooth'});">
+            <span class="material-symbols-outlined">chat</span>
+            <span class="font-mono text-label-xs uppercase">Terminal</span>
+        </button>
+        <button class="flex flex-col items-center justify-center text-on-surface-variant" onclick="toggleSettings()">
+            <span class="material-symbols-outlined">tune</span>
+            <span class="font-mono text-label-xs uppercase">Config</span>
+        </button>
+        <button class="flex flex-col items-center justify-center text-on-surface-variant" onclick="clearChat()">
+            <span class="material-symbols-outlined">delete_sweep</span>
+            <span class="font-mono text-label-xs uppercase">Clear</span>
+        </button>
+    </nav>
+</div>
+
+<script src="script.js"></script>
 </body>
 </html>
