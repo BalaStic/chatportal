@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChatPortal</title>
+    <!-- Marked.js betöltése a Markdown formázáshoz (félkövér, listák, stb.) -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 20px auto; padding: 10px; background-color: #f5f7fb; }
+        #config, #chat-box { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .input-group { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; color: #333; }
+        input[type="text"], input[type="password"], textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        textarea { height: 100px; resize: vertical; font-family: Arial, sans-serif; }
+        button { background-color: #1a73e8; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold; }
+        button:hover { background-color: #1557b0; }
+        button:disabled { background-color: #aaa; cursor: not-allowed; }
+        #history { height: 450px; overflow-y: auto; border: 1px solid #ddd; padding: 15px; margin-bottom: 15px; background: #fff; border-radius: 4px; }
+        .message { margin-bottom: 20px; padding: 12px 15px; border-radius: 6px; line-height: 1.5; }
+        .user { background-color: #e8f0fe; border-left: 5px solid #1a73e8; }
+        .assistant { background-color: #f8f9fa; border-left: 5px solid #34a853; }
+        .msg-header { font-weight: bold; margin-bottom: 8px; color: #555; font-size: 0.9em; }
+        .assistant ul, .assistant ol { padding-left: 20px; margin: 5px 0; }
+        .assistant p { margin: 5px 0 10px 0; }
+        .copy-btn { background: transparent; color: #555; padding: 6px; border: none; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s; }
+        .copy-btn:hover { background-color: #e0e0e0; color: #000; }
+        .provider-select { display: flex; gap: 20px; align-items: center; margin-bottom: 20px; padding: 10px 14px; background: #f5f7fb; border-radius: 6px; border: 1px solid #e0e4ed; }
+        .provider-select > span { font-weight: bold; color: #333; margin-right: 4px; }
+        .provider-select label { font-weight: normal; color: #333; margin-bottom: 0; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+        .provider-select input[type="radio"] { width: auto; margin: 0; cursor: pointer; accent-color: #1a73e8; }
+    </style>
+</head>
+<body>
+
+    <h2>ChatPortal</h2>
+
+    <!-- Beállítások panel -->
+    <div id="config">
+
+        <!-- Szolgáltató választó -->
+        <div class="provider-select">
+            <span>Szolgáltató:</span>
+            <label>
+                <input type="radio" name="provider" value="gemini" checked onchange="onProviderChange()">
+                🔵 Google Gemini
+            </label>
+            <label>
+                <input type="radio" name="provider" value="deepseek" onchange="onProviderChange()">
+                🐋 DeepSeek
+            </label>
+        </div>
+
+        <div class="input-group">
+            <label for="geminiApiKey">Google Gemini API Kulcs:</label>
+            <input type="password" id="geminiApiKey" placeholder="AIzaSy..." autocomplete="off">
+        </div>
+        <div class="input-group">
+            <label for="deepseekApiKey">DeepSeek API Kulcs:</label>
+            <input type="password" id="deepseekApiKey" placeholder="sk-..." autocomplete="off">
+        </div>
+        <div class="input-group">
+            <label for="model">Modell kódja:</label>
+            <input type="text" id="model" value="gemini-3.1-pro-preview">
+        </div>
+    </div>
+
+    <!-- Chat ablak -->
+    <div id="chat-box">
+        <div id="history"></div>
+        <div class="input-group">
+            <textarea id="userInput" placeholder="Írd ide az üzenetet... (Küldés: Ctrl+Enter vagy gomb)"></textarea>
+        </div>
+        <button onclick="sendMessage()">Üzenet küldése</button>
+    </div>
+
+    <script>
+        // Normalizált előzmények: [{ role: 'user'|'assistant', content: string }]
+        // Ez az OpenAI / DeepSeek formátum; Gemini-hez konvertálva lesz küldés előtt.
+        let conversationHistory = [];
+        let msgCounter = 0;
+
+        const MODELS = {
+            gemini: 'gemini-3.1-pro-preview',
+            deepseek: 'deepseek-v4-pro'
+        };
+
+        function getProvider() {
+            return document.querySelector('input[name="provider"]:checked').value;
+        }
+
+        function onProviderChange() {
+            document.getElementById('model').value = MODELS[getProvider()];
+            // Előzmények törlése provider-váltáskor (a kontextus nem hordozható)
+            conversationHistory = [];
+            document.getElementById('history').innerHTML = '';
+        }
+
+        // Ctrl+Enter gyorsbillentyű kezelése
+        document.getElementById('userInput').addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        async function sendMessage() {
+            const model = document.getElementById('model').value.trim();
+            const userInputField = document.getElementById('userInput');
+            const userText = userInputField.value.trim();
+            const sendBtn = document.querySelector('button[onclick="sendMessage()"]');
+            const provider = getProvider();
+
+            if (!model) { alert('Hiba: A modell neve nem lehet üres!'); return; }
+            if (!userText) return;
+
+            appendMessage('Te', userText, 'user', false);
+            conversationHistory.push({ role: 'user', content: userText });
+            userInputField.value = '';
+
+            const aiName = provider === 'gemini' ? 'Gemini AI' : 'DeepSeek AI';
+            const botMessageId = appendMessage(aiName, 'Gondolkodik...', 'assistant', false);
+            sendBtn.disabled = true;
+
+            try {
+                if (provider === 'gemini') {
+                    await sendGemini(botMessageId, model);
+                } else {
+                    await sendDeepSeek(botMessageId, model);
+                }
+            } finally {
+                sendBtn.disabled = false;
+            }
+        }
+
+        async function sendGemini(botMessageId, model) {
+            const apiKey = document.getElementById('geminiApiKey').value.trim();
+            if (!apiKey) {
+                updateMessage(botMessageId, 'Hiba: Kérlek, add meg a Google Gemini API kulcsot!');
+                return;
+            }
+
+            // Normalizált előzmények konvertálása Gemini formátumra
+            const geminiContents = conversationHistory.map(msg => ({
+                role: msg.role === 'assistant' ? 'model' : 'user',
+                parts: [{ text: msg.content }]
+            }));
+
+            try {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: geminiContents })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
+                        const aiText = data.candidates[0].content.parts[0].text;
+                        conversationHistory.push({ role: 'assistant', content: aiText });
+                        updateMessage(botMessageId, aiText);
+                    } else {
+                        updateMessage(botMessageId, 'Hiba: Az API válaszolt, de nem küldött vissza szöveget. Ellenőrizd a fiókod korlátozásait.');
+                    }
+                } else {
+                    const errorMsg = data.error?.message || 'Ismeretlen hiba történt a Google szerverén.';
+                    updateMessage(botMessageId, `Google API Hiba: ${errorMsg}`);
+                }
+            } catch (error) {
+                updateMessage(botMessageId, `Hálózati hiba lépett fel: ${error.message}`);
+            }
+        }
+
+        async function sendDeepSeek(botMessageId, model) {
+            const apiKey = document.getElementById('deepseekApiKey').value.trim();
+            if (!apiKey) {
+                updateMessage(botMessageId, 'Hiba: Kérlek, add meg a DeepSeek API kulcsot!');
+                return;
+            }
+
+            try {
+                const response = await fetch('https://api.deepseek.com/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify({
+                        model: model,
+                        messages: conversationHistory  // már OpenAI/DeepSeek formátumban van
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    if (data.choices?.[0]?.message?.content) {
+                        const aiText = data.choices[0].message.content;
+                        conversationHistory.push({ role: 'assistant', content: aiText });
+                        updateMessage(botMessageId, aiText);
+                    } else {
+                        updateMessage(botMessageId, 'Hiba: Az API válaszolt, de nem küldött vissza szöveget.');
+                    }
+                } else {
+                    const errorMsg = data.error?.message || 'Ismeretlen hiba történt a DeepSeek szerverén.';
+                    updateMessage(botMessageId, `DeepSeek API Hiba: ${errorMsg}`);
+                }
+            } catch (error) {
+                updateMessage(botMessageId, `Hálózati hiba lépett fel: ${error.message}`);
+            }
+        }
+
+        function appendMessage(sender, text, className, isMarkdown) {
+            const historyDiv = document.getElementById('history');
+            const msgDiv = document.createElement('div');
+            const id = 'msg-' + (++msgCounter);
+            msgDiv.id = id;
+            msgDiv.className = `message ${className}`;
+            msgDiv.dataset.rawText = text;
+            
+            const header = document.createElement('div');
+            header.className = 'msg-header';
+            header.style.display = 'flex';
+            header.style.justifyContent = 'space-between';
+            header.style.alignItems = 'center';
+            
+            const senderSpan = document.createElement('span');
+            senderSpan.innerText = sender + ':';
+            header.appendChild(senderSpan);
+            
+            if (className === 'assistant') {
+                const copyBtn = document.createElement('button');
+                const copyIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
+                const checkIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34a853" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+                
+                copyBtn.innerHTML = copyIcon;
+                copyBtn.className = 'copy-btn';
+                copyBtn.title = 'Válasz másolása';
+                copyBtn.onclick = async function() {
+                    const contentDiv = msgDiv.querySelector('.msg-content');
+                    const htmlContent = contentDiv ? contentDiv.innerHTML : '';
+                    const plainText = msgDiv.dataset.rawText || '';
+
+                    try {
+                        const htmlBlob = new Blob([htmlContent], { type: 'text/html' });
+                        const textBlob = new Blob([plainText], { type: 'text/plain' });
+                        const clipData = [new ClipboardItem({
+                            'text/html': htmlBlob,
+                            'text/plain': textBlob
+                        })];
+                        await navigator.clipboard.write(clipData);
+                        copyBtn.innerHTML = checkIcon;
+                        setTimeout(() => copyBtn.innerHTML = copyIcon, 2000);
+                    } catch (err) {
+                        console.error('Hiba a formázott másolásnál:', err);
+                        navigator.clipboard.writeText(plainText).then(() => {
+                            copyBtn.innerHTML = checkIcon;
+                            setTimeout(() => copyBtn.innerHTML = copyIcon, 2000);
+                        });
+                    }
+                };
+                header.appendChild(copyBtn);
+            }
+            
+            msgDiv.appendChild(header);
+
+            const content = document.createElement('div');
+            content.className = 'msg-content';
+            content.innerHTML = isMarkdown ? marked.parse(text) : escapeHtml(text);
+            msgDiv.appendChild(content);
+
+            historyDiv.appendChild(msgDiv);
+            historyDiv.scrollTop = historyDiv.scrollHeight;
+            return id;
+        }
+
+        function updateMessage(id, text) {
+            const msgDiv = document.getElementById(id);
+            if (msgDiv) {
+                msgDiv.dataset.rawText = text;
+                const contentDiv = msgDiv.querySelector('.msg-content');
+                if (contentDiv) {
+                    contentDiv.innerHTML = marked.parse(text);
+                }
+                document.getElementById('history').scrollTop = document.getElementById('history').scrollHeight;
+            }
+        }
+
+        function escapeHtml(text) {
+            return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        }
+    </script>
+</body>
+</html>
