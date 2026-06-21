@@ -36,6 +36,12 @@ function onProviderChange() {
         apiKeyLabel.textContent = 'DeepSeek API Key';
         apiKeyInput.placeholder = 'sk-...';
     }
+    // Auto-switch API key from stored keys
+    if (typeof window.API_KEYS !== 'undefined' && window.API_KEYS[provider] && window.API_KEYS[provider] !== '') {
+        apiKeyInput.value = window.API_KEYS[provider];
+    } else {
+        apiKeyInput.value = '';
+    }
     // Clear history on provider switch
     conversationHistory = [];
     historyDiv.innerHTML = '';
@@ -257,22 +263,45 @@ chatInput.addEventListener('keydown', function(e) {
 });
 
 // ===== INIT =====
+function isValidKey(key, prefix) {
+    if (!key || key === '') return false;
+    // Filter out placeholder example values
+    if (key === 'AIzaSy...' || key === 'sk-...') return false;
+    // Must start with expected prefix
+    if (prefix && !key.startsWith(prefix)) return false;
+    return true;
+}
+
+function setProviderUI(provider) {
+    if (provider === 'gemini') {
+        document.getElementById('prov-gemini').checked = true;
+        apiKeyLabel.textContent = 'Gemini API Key';
+        apiKeyInput.placeholder = 'AIzaSy...';
+    } else {
+        document.getElementById('prov-deepseek').checked = true;
+        apiKeyLabel.textContent = 'DeepSeek API Key';
+        apiKeyInput.placeholder = 'sk-...';
+    }
+    modelInput.value = MODELS[provider];
+}
+
 function loadApiKeys() {
-    if (typeof window.API_KEYS !== 'undefined') {
-        if (window.API_KEYS.gemini && window.API_KEYS.gemini !== 'AIzaSy...' && window.API_KEYS.gemini !== '') {
-            apiKeyInput.value = window.API_KEYS.gemini;
-            // Default to gemini, which is already checked
-            modelInput.value = MODELS.gemini;
-            document.getElementById('prov-gemini').checked = true;
-            apiKeyLabel.textContent = 'Gemini API Key';
-            apiKeyInput.placeholder = 'AIzaSy...';
-        } else if (window.API_KEYS.deepseek && window.API_KEYS.deepseek !== 'sk-...' && window.API_KEYS.deepseek !== '') {
-            apiKeyInput.value = window.API_KEYS.deepseek;
-            modelInput.value = MODELS.deepseek;
-            document.getElementById('prov-deepseek').checked = true;
-            apiKeyLabel.textContent = 'DeepSeek API Key';
-            apiKeyInput.placeholder = 'sk-...';
-        }
+    if (typeof window.API_KEYS === 'undefined') return;
+
+    const geminiKey = isValidKey(window.API_KEYS.gemini, 'A') ? window.API_KEYS.gemini : null;
+    const deepseekKey = isValidKey(window.API_KEYS.deepseek, 'sk-') ? window.API_KEYS.deepseek : null;
+
+    // Both keys present — use the currently selected provider
+    if (geminiKey && deepseekKey) {
+        const currentProvider = getProvider();
+        setProviderUI(currentProvider);
+        apiKeyInput.value = window.API_KEYS[currentProvider];
+    } else if (geminiKey) {
+        setProviderUI('gemini');
+        apiKeyInput.value = geminiKey;
+    } else if (deepseekKey) {
+        setProviderUI('deepseek');
+        apiKeyInput.value = deepseekKey;
     }
 }
 
