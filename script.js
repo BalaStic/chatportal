@@ -83,7 +83,7 @@ function appendMessage(sender, text, role) {
             </button>
         </div>
         <div class="${isUser ? 'bg-surface-container border border-outline/30 text-on-surface p-4' : 'relative bg-white border-l-4 border-primary p-4 border-y border-r border-outline-variant/10'}">
-            <div class="msg-content font-sans text-body-md leading-relaxed ${isUser ? '' : ''}">${text}</div>
+            <div class="msg-content font-sans text-body-md leading-relaxed whitespace-pre-wrap ${isUser ? '' : ''}">${text}</div>
         </div>
     `;
 
@@ -257,7 +257,31 @@ chatInput.addEventListener('keydown', function(e) {
 });
 
 // ===== INIT =====
+function loadApiKeys() {
+    if (typeof window.API_KEYS !== 'undefined') {
+        if (window.API_KEYS.gemini && window.API_KEYS.gemini !== 'AIzaSy...' && window.API_KEYS.gemini !== '') {
+            apiKeyInput.value = window.API_KEYS.gemini;
+            // Default to gemini, which is already checked
+            modelInput.value = MODELS.gemini;
+            document.getElementById('prov-gemini').checked = true;
+            apiKeyLabel.textContent = 'Gemini API Key';
+            apiKeyInput.placeholder = 'AIzaSy...';
+        } else if (window.API_KEYS.deepseek && window.API_KEYS.deepseek !== 'sk-...' && window.API_KEYS.deepseek !== '') {
+            apiKeyInput.value = window.API_KEYS.deepseek;
+            modelInput.value = MODELS.deepseek;
+            document.getElementById('prov-deepseek').checked = true;
+            apiKeyLabel.textContent = 'DeepSeek API Key';
+            apiKeyInput.placeholder = 'sk-...';
+        }
+    }
+}
+
 setTimeout(() => {
+    try {
+        loadApiKeys();
+    } catch (e) {
+        console.warn('API keys file not loaded (likely online/GitHub Pages). Enter keys manually.');
+    }
     appendSystemMessage('Steel Protocol initialized. Terminal ready.');
     console.log("%cCHATPORTAL — STEEL PROTOCOL ACTIVE", "color: #555d62; font-weight: bold; font-size: 20px; font-family: monospace;");
 }, 500);
